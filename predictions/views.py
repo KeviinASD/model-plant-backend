@@ -10,45 +10,46 @@ import os
 
 # Create your views here.
 # Cargar el modelo previamente entrenado
-MODEL_PATH = os.path.join(settings.BASE_DIR, "predictions/models/modelo_entrenado_20.h5")
+TFLITE_MODEL_PATH  = os.path.join(settings.BASE_DIR, "predictions/models/modelo_entrenado_20.tflite")
 
-if not os.path.exists(MODEL_PATH):
-    raise FileNotFoundError(f"El archivo del modelo no se encuentra en la ruta: {MODEL_PATH}")
+if not os.path.exists(TFLITE_MODEL_PATH):
+    raise FileNotFoundError(f"El archivo del modelo no se encuentra en la ruta: {TFLITE_MODEL_PATH}")
 else:
-    print(f"Modelo cargado de: {MODEL_PATH}")
+    print(f"Modelo cargado de: {TFLITE_MODEL_PATH}")
 
-model = tf.keras.models.load_model(MODEL_PATH)
+interpreter = tf.lite.Interpreter(model_path=TFLITE_MODEL_PATH)
+interpreter.allocate_tensors()
 
-
-from io import BytesIO
+# Obtener detalles de entrada y salida
+input_details = interpreter.get_input_details()
+output_details = interpreter.get_output_details()
 
 @csrf_exempt
 def predict(request):
     if request.method == "POST":
-        print("Archivos recibidos:", request.FILES)  # Imprime los archivos recibidos
         if "image" not in request.FILES:
             return JsonResponse({"error": "Archivo no encontrado en la solicitud"}, status=400)
 
         try:
-            # Leer el archivo como un flujo de bytes
-            image = request.FILES["image"]
-            image_bytes = image.read()
-            img = Image.open(BytesIO(image_bytes))  # Usar BytesIO para abrir la imagen
-            img = img.convert("RGB")  # Asegurar formato RGB
-            img = img.resize((512, 512))  # Ajustar tamaño según el modelo
-
             # Procesar la imagen
-            img_array = np.array(img) / 255.0
+            image = request.FILES["image"]
+            img = Image.open(image)
+            img = img.convert("RGB")
+            img = img.resize((512, 512))  # Ajustar tamaño según el modelo
+            img_array = np.array(img, dtype=np.float32) / 255.0
             img_array = np.expand_dims(img_array, axis=0)
 
-            # Realizar la predicción
-            predictions = model.predict(img_array)[0]
+            # Realizar la predicción con TensorFlow Lite
+            interpreter.set_tensor(input_details[0]['index'], img_array)
+            interpreter.invoke()
+            predictions = interpreter.get_tensor(output_details[0]['index'])[0]
+
+            # Mapear la predicción a clases
             classes = ["Healthy", "Multiple diseases", "Rust", "Scab"]
             predicted_class = classes[np.argmax(predictions)]
 
             return JsonResponse({"prediction": predicted_class, "probabilities": predictions.tolist()})
         except Exception as e:
-            print("Error en el procesamiento de la imagen:", e)  # Imprime el error en la consola
             return JsonResponse({"error": str(e)}, status=400)
 
     return JsonResponse({"error": "Método no permitido"}, status=405)
