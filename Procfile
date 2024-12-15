@@ -1,1 +1,1 @@
-web: gunicorn model-plant-backend.wsgi:application
+web: gunicorn plant_backend.wsgi:application
