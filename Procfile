@@ -1,0 +1,1 @@
+web: gunicorn model-plant-backend.wsgi:application
